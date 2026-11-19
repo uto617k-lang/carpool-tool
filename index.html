@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>카풀 기록</title>
+<meta name="description" content="4명 카풀의 참여자·운전자를 기록하고 월별로 운전자별·조합별 횟수를 집계하는 도구">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚗</text></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1f2328; --muted: #6b7280; --line: #e3e6ea;
+    --primary: #2563eb; --primary-weak: #e8efff;
+    --ok: #15803d; --ok-bg: #e7f6ec;
+    --none-bg: #eef0f3;
+    --warn: #b45309; --warn-bg: #fff4e0;
+    --danger: #c62828; --holiday: #d32f2f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif; font-size: 15px; }
+  header { display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+    padding: 12px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 19px; margin: 0; }
+  nav { display: flex; gap: 4px; }
+  .tab { border: none; background: none; padding: 8px 16px; border-radius: 8px; font-size: 15px; cursor: pointer; color: var(--muted); }
+  .tab.active { background: var(--primary-weak); color: var(--primary); font-weight: 700; }
+  .file { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #fileName { font-size: 13px; color: var(--muted); }
+  #fileName.on { color: var(--ok); font-weight: 600; }
+  button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #b8bec6; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+  button.danger { color: var(--danger); }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  #banner { margin: 16px 24px 0; padding: 12px 16px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 24px 60px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .row > label.lbl { width: 64px; font-weight: 700; color: var(--muted); }
+  input[type=date] { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  #dayInfo { font-size: 14px; color: var(--muted); }
+  #dayInfo .hol { color: var(--holiday); font-weight: 700; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; user-select: none; font-weight: 600; }
+  .chip input { margin: 0; }
+  .chip.on { border-color: var(--primary); background: var(--primary-weak); color: var(--primary); }
+  .chip.disabled { opacity: .4; cursor: not-allowed; }
+  .hint { font-size: 13px; color: var(--muted); }
+  .actions { margin: 18px 0 0; }
+  #formMsg { font-size: 14px; font-weight: 600; }
+  #formMsg.err { color: var(--danger); }
+  #formMsg.ok { color: var(--ok); }
+  .monthnav { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 12px; }
+  .monthnav h2 { font-size: 18px; margin: 0; min-width: 140px; text-align: center; }
+  .legend { display: flex; gap: 14px; justify-content: center; font-size: 13px; color: var(--muted); margin-bottom: 12px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--line); }
+  .cal { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .cal .head { text-align: center; font-size: 13px; color: var(--muted); font-weight: 700; padding: 4px 0; }
+  .cell { min-height: 74px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; cursor: pointer; background: #fff; font-size: 13px; }
+  .cell.blank { border: none; background: none; cursor: default; }
+  .cell .num { font-weight: 700; font-size: 14px; }
+  .cell .hname { color: var(--holiday); font-size: 11px; font-weight: 700; margin-left: 4px; }
+  .cell .st { margin-top: 6px; line-height: 1.35; }
+  .cell.rec { background: var(--ok-bg); }
+  .cell.rec .st { color: var(--ok); font-weight: 600; }
+  .cell.none { background: var(--none-bg); }
+  .cell.none .st { color: var(--muted); }
+  .cell.missing { background: var(--warn-bg); border-color: #f2c98a; }
+  .cell.missing .st { color: var(--warn); font-weight: 700; }
+  .cell.holiday .num { color: var(--holiday); }
+  .cell.today { box-shadow: inset 0 0 0 2px var(--primary); }
+  .cell.selected { outline: 3px solid #93b4ff; outline-offset: 1px; }
+  .cell.future .st { color: #b0b5bc; }
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .stat { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat .k { font-size: 13px; color: var(--muted); }
+  .stat .v { font-size: 24px; font-weight: 800; margin-top: 2px; }
+  .stat.warn .v { color: var(--warn); }
+  h3 { font-size: 16px; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { font-size: 13px; color: var(--muted); background: #fafbfc; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.least td { background: var(--warn-bg); }
+  .badge { font-size: 11px; font-weight: 700; color: var(--warn); border: 1px solid #f2c98a; border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
+  .bar { display: inline-block; height: 8px; background: var(--primary); border-radius: 4px; vertical-align: middle; margin-left: 8px; opacity: .7; }
+  .empty { color: var(--muted); padding: 14px 0; }
+  .statsHead { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .datenav { display: inline-flex; gap: 4px; }
+  #missingBox { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 16px;
+    border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+  #missingBox[hidden] { display: none; }
+  .calnote { text-align: center; font-size: 12px; color: var(--warn); margin: -4px 0 10px; }
+  kbd { font: 12px Consolas, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: #fafbfc; }
+  footer { max-width: 980px; margin: 0 auto; padding: 0 24px 40px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #1f2328; color: #fff;
+    padding: 11px 20px; border-radius: 10px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; }
+  #toast.show { opacity: 1; }
+  #toast.err { background: var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚗 카풀 기록</h1>
+  <nav>
+    <button class="tab active" data-view="record">기록</button>
+    <button class="tab" data-view="stats">통계</button>
+  </nav>
+  <div class="file">
+    <span id="fileName">연결된 파일 없음</span>
+    <button id="btnReconnect" class="small primary" hidden>파일 다시 연결</button>
+    <button id="btnNew" class="small">새 파일 만들기</button>
+    <button id="btnOpen" class="small">기존 파일 열기</button>
+  </div>
+</header>
+<div id="banner" hidden></div>
+
+<main>
+  <!-- 화면 1: 기록 -->
+  <section id="view-record">
+    <div id="missingBox" hidden>
+      <span id="missingText"></span>
+      <button id="btnGoMissing" class="small">가장 오래된 미입력 날로 이동</button>
+    </div>
+    <div class="card">
+      <div class="row">
+        <label class="lbl" for="date">날짜</label>
+        <span class="datenav">
+          <button id="dPrev" class="small" title="이전 평일">◀</button>
+          <input type="date" id="date">
+          <button id="dNext" class="small" title="다음 평일">▶</button>
+          <button id="dToday" class="small">오늘</button>
+        </span>
+        <span id="dayInfo"></span>
+      </div>
+      <div class="row">
+        <label class="lbl">참여자</label>
+        <div class="chips" id="members"></div>
+      </div>
+      <div class="row">
+        <label class="lbl">운전자</label>
+        <div class="chips" id="drivers"></div>
+        <span class="hint" id="driverHint"></span>
+      </div>
+      <div class="row actions">
+        <button id="btnSave" class="primary">저장</button>
+        <button id="btnNone">카풀 없음</button>
+        <button id="btnDelete" class="danger">기록 삭제</button>
+        <span id="formMsg"></span>
+      </div>
+      <div class="hint" style="margin-top:12px">단축키: <kbd>1</kbd>~<kbd>4</kbd> 참여자 A~D 체크 · <kbd>Shift</kbd>+<kbd>1</kbd>~<kbd>4</kbd> 운전자 선택 · <kbd>Ctrl</kbd>+<kbd>S</kbd> 저장 · <kbd>←</kbd><kbd>→</kbd> 이전/다음 평일</div>
+    </div>
+
+    <div class="card">
+      <div class="monthnav">
+        <button id="calPrev" class="small">◀</button>
+        <h2 id="calTitle"></h2>
+        <button id="calNext" class="small">▶</button>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--ok-bg)"></i>기록됨</span>
+        <span><i style="background:var(--none-bg)"></i>카풀 없음</span>
+        <span><i style="background:var(--warn-bg)"></i>미입력</span>
+        <span><i style="background:#fff;box-shadow:inset 0 0 0 2px var(--primary)"></i>오늘</span>
+        <span style="color:var(--holiday);font-weight:700">빨간 날짜 = 공휴일</span>
+      </div>
+      <div class="calnote" id="calNote" hidden></div>
+      <div class="cal" id="calendar"></div>
+    </div>
+  </section>
+
+  <!-- 화면 2: 통계 -->
+  <section id="view-stats" hidden>
+    <div class="card">
+      <div class="statsHead">
+        <div class="monthnav" style="margin:0">
+          <button id="stPrev" class="small">◀</button>
+          <h2 id="stTitle"></h2>
+          <button id="stNext" class="small">▶</button>
+        </div>
+        <button id="btnExport" class="primary">엑셀로 내보내기</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="summary" id="summary"></div>
+    </div>
+    <div class="card">
+      <h3>운전자별</h3>
+      <div id="driverTable"></div>
+    </div>
+    <div class="card">
+      <h3>조합별 (운전자 + 동승자)</h3>
+      <div id="comboTable"></div>
+    </div>
+  </section>
+</main>
+<footer>
+  기록은 이 웹페이지가 아니라 <b>내 PC의 CSV 파일</b>에만 저장되며, 인터넷으로 전송되지 않습니다.
+  Microsoft Edge 또는 Google Chrome(PC)에서 사용하세요. 월 1회 [엑셀로 내보내기]로 백업을 권장합니다.
+</footer>
+<div id="toast"></div>
+
+<script>
+/* ===== 설정 ===== */
+const MEMBERS = ['A', 'B', 'C', 'D'];
+
+// 대한민국 공휴일 (대체공휴일 포함). 달력 표시용이며 자동 기록하지 않음.
+// 새 연도가 오면 이 목록에 'YYYY-MM-DD': '이름' 형식으로 추가하세요.
+const HOLIDAYS = {
+  '2026-01-01': '신정',
+  '2026-02-16': '설날 연휴', '2026-02-17': '설날', '2026-02-18': '설날 연휴',
+  '2026-03-01': '삼일절', '2026-03-02': '대체공휴일',
+  '2026-05-05': '어린이날',
+  '2026-05-24': '부처님오신날', '2026-05-25': '대체공휴일',
+  '2026-06-03': '지방선거일',
+  '2026-06-06': '현충일',
+  '2026-07-17': '제헌절',
+  '2026-08-15': '광복절', '2026-08-17': '대체공휴일',
+  '2026-09-24': '추석 연휴', '2026-09-25': '추석', '2026-09-26': '추석 연휴', '2026-09-28': '대체공휴일',
+  '2026-10-03': '개천절', '2026-10-05': '대체공휴일',
+  '2026-10-09': '한글날',
+  '2026-12-25': '성탄절',
+  '2027-01-01': '신정',
+  '2027-02-06': '설날 연휴', '2027-02-07': '설날', '2027-02-08': '설날 연휴', '2027-02-09': '대체공휴일',
+  '2027-03-01': '삼일절',
+  '2027-05-05': '어린이날',
+  '2027-05-13': '부처님오신날',
+  '2027-06-06': '현충일',
+  '2027-07-17': '제헌절',
+  '2027-08-15': '광복절', '2027-08-16': '대체공휴일',
+  '2027-09-14': '추석 연휴', '2027-09-15': '추석', '2027-09-16': '추석 연휴',
+  '2027-10-03': '개천절', '2027-10-04': '대체공휴일',
+  '2027-10-09': '한글날', '2027-10-11': '대체공휴일',
+  '2027-12-25': '성탄절', '2027-12-27': '대체공휴일',
+};
+
+/* ===== 상태 ===== */
+let records = new Map();      // 'YYYY-MM-DD' -> {status:'carpool'|'none', driver, passengers[]}
+let fileHandle = null;        // 읽기/쓰기 권한이 있는 CSV 파일
+let pendingHandle = null;     // 기억해 둔 파일 (권한 재요청 필요)
+let calMonth, stMonth;        // {y, m}  m: 1~12
+
+/* ===== 유틸 ===== */
+const $ = id => document.getElementById(id);
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const pad = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseYmd = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const isWeekend = s => { const w = parseYmd(s).getDay(); return w === 0 || w === 6; };
+const todayStr = () => ymd(new Date());
+const sortMembers = arr => MEMBERS.filter(m => arr.includes(m));
+const comboLabel = r => `운전자 ${r.driver} + 동승자 ${r.passengers.join('·')}`;
+const shortLabel = r => `🚗${r.driver} + ${r.passengers.join('·')}`;
+const supportsFS = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
+
+function lastWeekday(s) {
+  const d = parseYmd(s);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return ymd(d);
+}
+function weekdaysOf(y, m) {
+  const out = [], d = new Date(y, m - 1, 1);
+  while (d.getMonth() === m - 1) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) out.push(ymd(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+function shiftMonth(mo, delta) {
+  const d = new Date(mo.y, mo.m - 1 + delta, 1);
+  return { y: d.getFullYear(), m: d.getMonth() + 1 };
+}
+
+let toastTimer;
+function toast(msg, err = false) {
+  const t = $('toast');
+  t.textContent = msg; t.className = 'show' + (err ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, err ? 5000 : 2500);
+}
+function formMsg(msg, type = '') { const el = $('formMsg'); el.textContent = msg; el.className = type; }
+
+/* ===== CSV ===== */
+function toCSV() {
+  const rows = ['date,status,driver,passengers'];
+  [...records.keys()].sort().forEach(k => {
+    const r = records.get(k);
+    rows.push([k, r.status, r.driver || '', r.passengers.join(';')].join(','));
+  });
+  return '﻿' + rows.join('\r\n') + '\r\n';
+}
+// CSV를 읽어 Map으로 바꾼다. 형식이 잘못된 행은 건너뛰고 fromCSV.skipped에 행 번호를 남긴다.
+function fromCSV(text) {
+  const map = new Map();
+  const skipped = [];
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/);
+  lines.forEach((line, i) => {
+    if (!line.trim()) return;
+    const [date, status, driver, pass] = line.split(',').map(s => (s || '').trim().replace(/^"|"$/g, ''));
+    if (i === 0 && date === 'date') return; // 헤더
+    const valid = /^\d{4}-\d{2}-\d{2}$/.test(date) && ymd(parseYmd(date)) === date && !isWeekend(date);
+    if (valid && status === 'none') {
+      map.set(date, { status: 'none', driver: '', passengers: [] });
+      return;
+    }
+    if (valid && status === 'carpool' && MEMBERS.includes(driver)) {
+      const raw = (pass || '').split(';').map(s => s.trim()).filter(Boolean);
+      const passengers = sortMembers(raw.filter(p => p !== driver));
+      if (passengers.length && raw.every(p => MEMBERS.includes(p))) {
+        map.set(date, { status: 'carpool', driver, passengers });
+        return;
+      }
+    }
+    skipped.push(i + 1);
+  });
+  fromCSV.skipped = skipped;
+  return map;
+}
+
+/* ===== 파일 핸들 기억 (IndexedDB) ===== */
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('carpool-tool', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) {
+  try {
+    const db = await idbOpen();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(v, k);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  } catch (e) { console.warn('파일 위치를 기억하지 못했어요', e); }
+}
+async function idbGet(k) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((res, rej) => {
+      const q = db.transaction('kv', 'readonly').objectStore('kv').get(k);
+      q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+    });
+  } catch (e) { return null; }
+}
+
+/* ===== 파일 읽기/쓰기 ===== */
+const pickerTypes = [{ description: 'CSV 파일', accept: { 'text/csv': ['.csv'] } }];
+
+let lastModified = 0;   // 마지막으로 읽거나 쓴 시점의 파일 수정 시각
+let saving = false;
+
+function warnSkipped() {
+  const s = fromCSV.skipped || [];
+  if (s.length) toast(`CSV에서 형식이 맞지 않는 ${s.length}개 행을 건너뛰었어요 (행 번호: ${s.slice(0, 5).join(', ')}${s.length > 5 ? ' …' : ''})`, true);
+}
+
+async function loadFromHandle(h) {
+  const f = await h.getFile();
+  records = fromCSV(await f.text());
+  lastModified = f.lastModified;
+  warnSkipped();
+}
+
+// 파일이 다른 곳(엑셀, 다른 탭 등)에서 바뀌었으면 다시 읽는다. 바뀌었으면 true.
+async function syncFromFile() {
+  if (!fileHandle) return false;
+  const f = await fileHandle.getFile();
+  if (f.lastModified === lastModified) return false;
+  records = fromCSV(await f.text());
+  lastModified = f.lastModified;
+  warnSkipped();
+  return true;
+}
+
+let writeChain = Promise.resolve();
+function writeFile() {
+  const data = toCSV();
+  const h = fileHandle;
+  writeChain = writeChain.catch(() => {}).then(async () => {
+    const w = await h.createWritable();
+    await w.write(data);
+    await w.close();
+    lastModified = (await h.getFile()).lastModified;
+  });
+  return writeChain;
+}
+
+async function connect(h) {
+  fileHandle = h; pendingHandle = null;
+  await idbSet('handle', h);
+  renderFileState();
+}
+
+async function newFile() {
+  try {
+    const h = await window.showSaveFilePicker({ suggestedName: 'carpool_records.csv', types: pickerTypes });
+    const f = await h.getFile();
+    if (f.size > 0) {
+      const overwrite = confirm('고른 파일에 이미 내용이 있어요.\n\n[확인] 비우고 새로 시작\n[취소] 기존 내용을 그대로 불러오기');
+      if (!overwrite) {
+        records = fromCSV(await f.text());
+        await connect(h); renderAll();
+        toast(`기존 기록 ${records.size}건을 불러왔어요`);
+        return;
+      }
+    }
+    records = new Map();
+    fileHandle = h;
+    await writeFile();
+    await connect(h); renderAll();
+    toast('새 CSV 파일을 만들었어요');
+  } catch (e) {
+    if (e.name !== 'AbortError') toast('파일을 만들지 못했어요: ' + e.message, true);
+  }
+}
+
+async function openFile() {
+  try {
+    const [h] = await window.showOpenFilePicker({ types: pickerTypes, multiple: false });
+    const perm = await h.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { toast('파일 쓰기 권한이 필요해요', true); return; }
+    await loadFromHandle(h);
+    await connect(h); renderAll();
+    toast(`기록 ${records.size}건을 불러왔어요`);
+  } catch (e) {
+    if (e.name !== 'AbortError') toast('파일을 열지 못했어요: ' + e.message, true);
+  }
+}
+
+async function reconnect() {
+  if (!pendingHandle) return;
+  try {
+    const perm = await pendingHandle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { toast('파일 접근을 허용해야 기록을 불러올 수 있어요', true); return; }
+    await loadFromHandle(pendingHandle);
+    await connect(pendingHandle); renderAll();
+    toast(`기록 ${records.size}건을 불러왔어요`);
+  } catch (e) {
+    pendingHandle = null; renderFileState();
+    toast('지난번 파일을 찾지 못했어요. [기존 파일 열기]로 다시 골라주세요', true);
+  }
+}
+
+/* ===== 기록 저장 ===== */
+function checkedMembers() {
+  return MEMBERS.filter(m => $('m-' + m).checked);
+}
+function selectedDriver() {
+  const el = document.querySelector('input[name=driver]:checked');
+  return el ? el.value : '';
+}
+function guard(d) {
+  if (!fileHandle) { formMsg('먼저 위쪽에서 CSV 파일을 연결해주세요', 'err'); return false; }
+  if (!d) { formMsg('날짜를 골라주세요', 'err'); return false; }
+  if (isWeekend(d)) { formMsg('주말은 기록하지 않아요', 'err'); return false; }
+  return true;
+}
+// 저장: 파일을 먼저 다시 읽어 최신 내용 위에 이번 변경만 얹은 뒤 쓴다 (다른 곳에서 바뀐 내용을 덮어쓰지 않도록).
+async function commit(d, rec, okMsg) {
+  saving = true;
+  try {
+    try {
+      if (await syncFromFile()) toast('CSV 파일이 바깥에서 바뀌어 최신 내용을 먼저 불러왔어요');
+    } catch (e) {
+      formMsg('저장 실패', 'err');
+      toast('CSV 파일을 읽지 못했어요. 파일이 옮겨지거나 지워졌다면 [기존 파일 열기]로 다시 연결해주세요.', true);
+      return;
+    }
+    const snapshot = new Map(records);
+    if (rec) records.set(d, rec); else records.delete(d);
+    try {
+      await writeFile();
+      formMsg(okMsg, 'ok'); toast(okMsg);
+    } catch (e) {
+      records = snapshot;
+      formMsg('저장 실패', 'err');
+      toast('파일에 저장하지 못했어요. CSV 파일이 엑셀에서 열려 있다면 닫고 다시 시도해주세요.', true);
+    }
+  } finally {
+    saving = false;
+    renderCalendar(); renderStats(); renderDayInfo(); renderMissing();
+  }
+}
+async function save() {
+  const d = $('date').value;
+  if (!guard(d)) return;
+  const parts = checkedMembers();
+  if (parts.length < 2) {
+    await commit(d, { status: 'none', driver: '', passengers: [] }, '참여자가 1명 이하라 "카풀 없음"으로 저장했어요');
+    loadForm(d);
+    return;
+  }
+  const drv = selectedDriver();
+  if (!drv || !parts.includes(drv)) { formMsg('운전자를 골라주세요', 'err'); return; }
+  const rec = { status: 'carpool', driver: drv, passengers: parts.filter(p => p !== drv) };
+  await commit(d, rec, `저장했어요: ${comboLabel(rec)}`);
+}
+async function saveNone() {
+  const d = $('date').value;
+  if (!guard(d)) return;
+  await commit(d, { status: 'none', driver: '', passengers: [] }, '"카풀 없음"으로 저장했어요');
+  loadForm(d);
+}
+async function removeRecord() {
+  const d = $('date').value;
+  if (!guard(d)) return;
+  if (!records.has(d)) { formMsg('이 날짜에는 지울 기록이 없어요', 'err'); return; }
+  if (!confirm(`${d} 기록을 삭제할까요? (미입력 상태로 돌아가요)`)) return;
+  await commit(d, null, '기록을 삭제했어요');
+  loadForm(d);
+}
+
+/* ===== 기록 화면 렌더링 ===== */
+function buildMemberInputs() {
+  $('members').innerHTML = MEMBERS.map(m =>
+    `<label class="chip" id="mc-${m}"><input type="checkbox" id="m-${m}" value="${m}">${m}</label>`).join('');
+  $('drivers').innerHTML = MEMBERS.map(m =>
+    `<label class="chip" id="dc-${m}"><input type="radio" name="driver" id="d-${m}" value="${m}">${m}</label>`).join('');
+  MEMBERS.forEach(m => {
+    $('m-' + m).addEventListener('change', () => { formMsg(''); syncDrivers(); });
+    $('d-' + m).addEventListener('change', () => { formMsg(''); syncDrivers(); });
+  });
+}
+function syncDrivers() {
+  const parts = checkedMembers();
+  MEMBERS.forEach(m => {
+    $('mc-' + m).classList.toggle('on', $('m-' + m).checked);
+    const radio = $('d-' + m);
+    const allowed = parts.length >= 2 && parts.includes(m);
+    if (!allowed) radio.checked = false;
+    radio.disabled = !allowed;
+    $('dc-' + m).classList.toggle('disabled', !allowed);
+    $('dc-' + m).classList.toggle('on', radio.checked);
+  });
+  $('driverHint').textContent = parts.length < 2
+    ? '참여자를 2명 이상 고르면 선택할 수 있어요'
+    : (selectedDriver() ? '' : '참여자 중 운전한 1명을 골라주세요');
+}
+function loadForm(d) {
+  const r = records.get(d);
+  const parts = r && r.status === 'carpool' ? [r.driver, ...r.passengers] : [];
+  MEMBERS.forEach(m => { $('m-' + m).checked = parts.includes(m); });
+  syncDrivers();
+  if (r && r.status === 'carpool') { $('d-' + r.driver).checked = true; syncDrivers(); }
+  renderDayInfo();
+}
+function renderDayInfo() {
+  const d = $('date').value;
+  if (!d) { $('dayInfo').textContent = ''; return; }
+  const r = records.get(d);
+  const hol = HOLIDAYS[d] ? ` <span class="hol">${HOLIDAYS[d]}</span>` : '';
+  let st;
+  if (isWeekend(d)) st = '주말 (기록 대상 아님)';
+  else if (!r) st = '아직 기록 없음';
+  else if (r.status === 'none') st = '저장됨: 카풀 없음';
+  else st = '저장됨: ' + comboLabel(r);
+  $('dayInfo').innerHTML = `(${DOW[parseYmd(d).getDay()]})${hol} · ${st}`;
+  const weekend = isWeekend(d);
+  $('btnSave').disabled = weekend; $('btnNone').disabled = weekend; $('btnDelete').disabled = weekend || !r;
+}
+function selectDate(d) {
+  $('date').value = d;
+  formMsg('');
+  loadForm(d);
+  const dt = parseYmd(d);
+  calMonth = { y: dt.getFullYear(), m: dt.getMonth() + 1 };
+  renderCalendar();
+}
+function stepWeekday(s, delta) {
+  const d = parseYmd(s);
+  do { d.setDate(d.getDate() + delta); } while (d.getDay() === 0 || d.getDay() === 6);
+  return ymd(d);
+}
+// 첫 기록일부터 어제까지, 기록이 없는 평일 목록
+function missingDays() {
+  if (!records.size) return [];
+  const first = [...records.keys()].sort()[0];
+  const t = todayStr(), out = [];
+  for (let d = isWeekend(first) ? stepWeekday(first, 1) : first; d < t; d = stepWeekday(d, 1)) {
+    if (!records.has(d)) out.push(d);
+  }
+  return out;
+}
+function renderMissing() {
+  const list = fileHandle ? missingDays() : [];
+  $('missingBox').hidden = !list.length;
+  if (list.length) {
+    const f = parseYmd(list[0]);
+    $('missingText').textContent = `⚠ 기록이 빠진 평일이 ${list.length}일 있어요 (가장 오래된 날: ${f.getMonth() + 1}월 ${f.getDate()}일)`;
+  }
+}
+function renderCalendar() {
+  const { y, m } = calMonth;
+  $('calTitle').textContent = `${y}년 ${m}월`;
+  const hasHol = Object.keys(HOLIDAYS).some(k => k.startsWith(y + '-'));
+  $('calNote').hidden = hasHol;
+  $('calNote').textContent = `${y}년 공휴일 정보가 없어 공휴일이 표시되지 않아요 (index.html의 HOLIDAYS 목록에 추가하면 표시됩니다)`;
+  const days = weekdaysOf(y, m);
+  const t = todayStr(), sel = $('date').value;
+  let html = ['월', '화', '수', '목', '금'].map(w => `<div class="head">${w}</div>`).join('');
+  if (days.length) {
+    const lead = parseYmd(days[0]).getDay() - 1;
+    for (let i = 0; i < lead; i++) html += '<div class="cell blank"></div>';
+  }
+  for (const d of days) {
+    const r = records.get(d);
+    const cls = ['cell'];
+    let st = '';
+    if (r && r.status === 'carpool') { cls.push('rec'); st = shortLabel(r); }
+    else if (r) { cls.push('none'); st = '카풀 없음'; }
+    else if (d < t) { cls.push('missing'); st = '미입력'; }
+    else if (d > t) { cls.push('future'); }
+    else { st = '오늘 입력 전'; }
+    if (HOLIDAYS[d]) cls.push('holiday');
+    if (d === t) cls.push('today');
+    if (d === sel) cls.push('selected');
+    const hname = HOLIDAYS[d] ? `<span class="hname">${HOLIDAYS[d]}</span>` : '';
+    html += `<div class="${cls.join(' ')}" data-date="${d}"><span class="num">${parseYmd(d).getDate()}</span>${hname}<div class="st">${st}</div></div>`;
+  }
+  $('calendar').innerHTML = html;
+}
+
+/* ===== 통계 ===== */
+function monthStats(y, m) {
+  const days = weekdaysOf(y, m), t = todayStr();
+  const drive = {}, ride = {};
+  MEMBERS.forEach(x => { drive[x] = 0; ride[x] = 0; });
+  const combos = new Map();
+  let carpool = 0, none = 0, missing = 0, future = 0, holidays = 0;
+  for (const d of days) {
+    if (HOLIDAYS[d]) holidays++;
+    const r = records.get(d);
+    if (!r) { if (d < t) missing++; else future++; continue; }
+    if (r.status === 'none') { none++; continue; }
+    carpool++;
+    drive[r.driver]++;
+    r.passengers.forEach(p => ride[p]++);
+    const k = comboLabel(r);
+    combos.set(k, (combos.get(k) || 0) + 1);
+  }
+  const comboList = [...combos.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return { weekdays: days.length, holidays, carpool, none, missing, future, drive, ride, comboList };
+}
+function renderStats() {
+  const { y, m } = stMonth;
+  $('stTitle').textContent = `${y}년 ${m}월`;
+  const s = monthStats(y, m);
+  const stat = (k, v, extra = '') => `<div class="stat ${extra}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  $('summary').innerHTML =
+    stat('평일', `${s.weekdays}일`) +
+    stat('카풀 있음', `${s.carpool}일`) +
+    stat('카풀 없음', `${s.none}일`) +
+    stat('미입력', `${s.missing}일`, s.missing ? 'warn' : '');
+
+  const maxDrive = Math.max(1, ...MEMBERS.map(x => s.drive[x]));
+  const minDrive = Math.min(...MEMBERS.map(x => s.drive[x]));
+  $('driverTable').innerHTML = `<table>
+    <thead><tr><th>멤버</th><th class="n">운전</th><th class="n">동승</th><th class="n">참여 합계</th></tr></thead>
+    <tbody>${MEMBERS.map(x => {
+      const least = s.carpool > 0 && s.drive[x] === minDrive;
+      return `<tr class="${least ? 'least' : ''}">
+        <td><b>${x}</b>${least ? '<span class="badge">운전 가장 적음</span>' : ''}</td>
+        <td class="n"><b>${s.drive[x]}</b>회<span class="bar" style="width:${Math.round(s.drive[x] / maxDrive * 80)}px"></span></td>
+        <td class="n">${s.ride[x]}회</td>
+        <td class="n">${s.drive[x] + s.ride[x]}회</td></tr>`;
+    }).join('')}</tbody></table>`;
+
+  $('comboTable').innerHTML = s.comboList.length
+    ? `<table><thead><tr><th>조합</th><th class="n">횟수</th></tr></thead><tbody>${
+        s.comboList.map(([k, v]) => `<tr><td>${k}</td><td class="n"><b>${v}</b>회</td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">이 달에는 카풀 기록이 없어요.</div>';
+}
+
+/* ===== 엑셀 내보내기 ===== */
+function exportXlsx() {
+  if (typeof XLSX === 'undefined') { toast('엑셀 기능을 불러오지 못했어요. 인터넷 연결을 확인한 뒤 새로고침해주세요', true); return; }
+  if (!records.size) { toast('내보낼 기록이 없어요', true); return; }
+  const wb = XLSX.utils.book_new();
+
+  const rows = [['날짜', '요일', '상태', '운전자', '동승자', '조합']];
+  [...records.keys()].sort().forEach(d => {
+    const r = records.get(d);
+    rows.push(r.status === 'carpool'
+      ? [d, DOW[parseYmd(d).getDay()], '카풀', r.driver, r.passengers.join('·'), comboLabel(r)]
+      : [d, DOW[parseYmd(d).getDay()], '카풀 없음', '', '', '']);
+  });
+  const ws1 = XLSX.utils.aoa_to_sheet(rows);
+  ws1['!cols'] = [{ wch: 12 }, { wch: 5 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 24 }];
+  XLSX.utils.book_append_sheet(wb, ws1, '기록');
+
+  const { y, m } = stMonth;
+  const s = monthStats(y, m);
+  const aoa = [
+    [`${y}년 ${m}월 카풀 통계`], [],
+    ['평일', '카풀 있음', '카풀 없음', '미입력'],
+    [s.weekdays, s.carpool, s.none, s.missing], [],
+    ['운전자별'], ['멤버', '운전', '동승', '참여 합계'],
+    ...MEMBERS.map(x => [x, s.drive[x], s.ride[x], s.drive[x] + s.ride[x]]), [],
+    ['조합별'], ['조합', '횟수'],
+    ...(s.comboList.length ? s.comboList.map(([k, v]) => [k, v]) : [['(기록 없음)', 0]]),
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(aoa);
+  ws2['!cols'] = [{ wch: 26 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, ws2, '월별통계');
+
+  XLSX.writeFile(wb, `카풀기록_백업_${y}-${pad(m)}.xlsx`);
+  toast('엑셀 파일을 내려받았어요');
+}
+
+/* ===== 공통 ===== */
+function renderFileState() {
+  const fn = $('fileName');
+  if (fileHandle) { fn.textContent = '연결 파일: ' + fileHandle.name; fn.className = 'on'; }
+  else if (pendingHandle) { fn.textContent = '지난 파일: ' + pendingHandle.name + ' (접근 허용 필요)'; fn.className = ''; }
+  else { fn.textContent = '연결된 파일 없음 → 새 파일을 만들거나 기존 파일을 열어주세요'; fn.className = ''; }
+  $('btnReconnect').hidden = !pendingHandle;
+}
+function renderAll() {
+  renderFileState();
+  loadForm($('date').value);
+  renderCalendar();
+  renderStats();
+  renderMissing();
+}
+
+// 기록 화면 단축키
+function onKey(e) {
+  if ($('view-record').hidden) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (!$('btnSave').disabled) save();
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.id === 'date') return; // 날짜 칸에 입력 중일 때는 무시
+  const n = /^Digit([1-4])$/.exec(e.code);
+  if (n) {
+    const m = MEMBERS[Number(n[1]) - 1];
+    e.preventDefault(); formMsg('');
+    if (e.shiftKey) {
+      const r = $('d-' + m);
+      if (!r.disabled) { r.checked = true; syncDrivers(); }
+    } else {
+      $('m-' + m).checked = !$('m-' + m).checked; syncDrivers();
+    }
+    return;
+  }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (e.target.matches && e.target.matches('input[type=radio]')) return; // 라디오 기본 동작 유지
+    e.preventDefault();
+    selectDate(stepWeekday($('date').value || todayStr(), e.key === 'ArrowLeft' ? -1 : 1));
+  }
+}
+function switchView(v) {
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  $('view-record').hidden = v !== 'record';
+  $('view-stats').hidden = v !== 'stats';
+  if (v === 'stats') renderStats();
+}
+
+async function init() {
+  buildMemberInputs();
+  const start = lastWeekday(todayStr());
+  $('date').value = start;
+  const sd = parseYmd(start);
+  calMonth = { y: sd.getFullYear(), m: sd.getMonth() + 1 };
+  stMonth = { ...calMonth };
+
+  document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
+  $('date').addEventListener('change', () => { if ($('date').value) selectDate($('date').value); });
+  $('calendar').addEventListener('click', e => {
+    const c = e.target.closest('.cell[data-date]');
+    if (c) selectDate(c.dataset.date);
+  });
+  $('calPrev').onclick = () => { calMonth = shiftMonth(calMonth, -1); renderCalendar(); };
+  $('calNext').onclick = () => { calMonth = shiftMonth(calMonth, 1); renderCalendar(); };
+  $('stPrev').onclick = () => { stMonth = shiftMonth(stMonth, -1); renderStats(); };
+  $('stNext').onclick = () => { stMonth = shiftMonth(stMonth, 1); renderStats(); };
+  $('btnSave').onclick = save;
+  $('btnNone').onclick = saveNone;
+  $('btnDelete').onclick = removeRecord;
+  $('btnNew').onclick = newFile;
+  $('btnOpen').onclick = openFile;
+  $('btnReconnect').onclick = reconnect;
+  $('btnExport').onclick = exportXlsx;
+  $('dPrev').onclick = () => selectDate(stepWeekday($('date').value || todayStr(), -1));
+  $('dNext').onclick = () => selectDate(stepWeekday($('date').value || todayStr(), 1));
+  $('dToday').onclick = () => selectDate(lastWeekday(todayStr()));
+  $('btnGoMissing').onclick = () => { const l = missingDays(); if (l.length) selectDate(l[0]); };
+  document.addEventListener('keydown', onKey);
+  // 다른 창(엑셀 등)에서 돌아왔을 때 파일이 바뀌었으면 다시 불러온다
+  window.addEventListener('focus', async () => {
+    if (!fileHandle || saving) return;
+    try {
+      if (await syncFromFile()) { renderAll(); toast('CSV 파일이 바뀌어 다시 불러왔어요'); }
+    } catch (e) { /* 저장할 때 다시 안내 */ }
+  });
+  window.addEventListener('beforeunload', e => { if (saving) { e.preventDefault(); e.returnValue = ''; } });
+
+  if (!supportsFS) {
+    const b = $('banner');
+    b.hidden = false;
+    b.textContent = '이 브라우저에서는 파일 저장이 안 돼요. Microsoft Edge 또는 Google Chrome으로 이 파일을 열어주세요.';
+    $('btnNew').disabled = $('btnOpen').disabled = true;
+  } else {
+    const h = await idbGet('handle');
+    if (h) {
+      try {
+        if ((await h.queryPermission({ mode: 'readwrite' })) === 'granted') {
+          await loadFromHandle(h);
+          fileHandle = h;
+        } else {
+          pendingHandle = h;
+        }
+      } catch (e) { pendingHandle = null; }
+    }
+  }
+  renderAll();
+}
+init();
+</script>
+</body>
+</html>
